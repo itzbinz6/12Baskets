@@ -8,6 +8,419 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,300;1,400;1,500&family=Outfit:wght@300;400;500;600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+<!-- Firebase -->
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+  import { getDatabase, ref, onValue, set, push, remove, update } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
+  import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
+
+  const firebaseConfig = {
+    apiKey: "AIzaSyDCaRLW5qn1i6F5l_KGk2voOQdMTmqA3aI",
+    authDomain: "baskets-demo0.firebaseapp.com",
+    databaseURL: "https://baskets-demo0-default-rtdb.firebaseio.com",
+    projectId: "baskets-demo0",
+    storageBucket: "baskets-demo0.firebasestorage.app",
+    messagingSenderId: "255266128270",
+    appId: "1:255266128270:web:b82452d53cbb0ac9f324df",
+    measurementId: "G-HKXK18JSP1"
+  };
+
+  const app = initializeApp(firebaseConfig);
+  const db = getDatabase(app);
+  const auth = getAuth(app);
+
+  // ── EXPOSE globally for admin panel usage
+  window._fb = { db, auth, ref, onValue, set, push, remove, update, signInWithEmailAndPassword, signOut, onAuthStateChanged };
+
+  // ── ROUTE: show admin or main site
+  function route() {
+    const hash = window.location.hash;
+    if (hash === '#/admin' || hash.startsWith('#/admin')) {
+      document.getElementById('main-site').style.display = 'none';
+      document.getElementById('admin-app').style.display = 'block';
+      initAdmin();
+    } else {
+      document.getElementById('main-site').style.display = '';
+      document.getElementById('admin-app').style.display = 'none';
+    }
+  }
+  window.addEventListener('hashchange', route);
+  window.addEventListener('DOMContentLoaded', route);
+
+  // ── MENU LIVE LOADER: reads from Firebase and re-renders the menu
+  window.addEventListener('DOMContentLoaded', () => {
+    const menuRef = ref(db, 'menu');
+    onValue(menuRef, (snapshot) => {
+      const data = snapshot.val();
+      if (!data) return; // No data yet, keep static HTML
+      renderMenuFromFirebase(data);
+    });
+  });
+
+  function renderMenuFromFirebase(data) {
+    // ── Render Small Chops Packs
+    if (data.chops) {
+      const panel = document.getElementById('panel-chops');
+      if (!panel) return;
+      const grid = panel.querySelector('.packs-grid');
+      if (!grid) return;
+      grid.innerHTML = '';
+      Object.entries(data.chops).forEach(([id, item]) => {
+        const avail = item.available !== false;
+        const hasPrice = item.price && item.price !== '';
+        grid.innerHTML += `
+          <div class="pack-item${avail ? '' : ' unavailable'}" data-item-id="${id}">
+            <div class="pack-name">${item.name}</div>
+            <div class="pack-desc">${item.desc || ''}</div>
+            <div class="pack-footer">
+              ${avail && hasPrice ? `<div class="pack-price">&#8358;${item.price}</div><div class="pack-tag">Available</div>` : `<div class="pack-oos">Temporarily Unavailable</div>`}
+            </div>
+          </div>`;
+      });
+    }
+    // ── Render Platters
+    if (data.platters) {
+      const panel = document.getElementById('panel-platters');
+      if (!panel) return;
+      const table = panel.querySelector('.platters-table');
+      if (!table) return;
+      table.innerHTML = '';
+      Object.entries(data.platters).forEach(([id, item]) => {
+        const avail = item.available !== false;
+        const hasPrice = item.price && item.price !== '';
+        table.innerHTML += `
+          <div class="platter-row" data-item-id="${id}">
+            <div>
+              <div class="platter-row-name">${item.name}</div>
+              ${item.badge ? `<div class="platter-row-badge">${item.badge}</div>` : ''}
+            </div>
+            <div class="platter-row-contents">${item.desc || ''}</div>
+            <div class="platter-row-price${avail && hasPrice ? '' : ' oos'}">${avail && hasPrice ? '&#8358;' + item.price : 'Temporarily Unavailable'}</div>
+          </div>`;
+      });
+    }
+    // Other sections (grills, meals, pastries, boxes, breakfast) are mostly static price lists
+    // and will be managed via Firebase but rendered as simple updates to price-row values
+    const simpleSections = ['grills', 'meals', 'pastries', 'boxes', 'breakfast'];
+    simpleSections.forEach(section => {
+      if (data[section]) {
+        Object.entries(data[section]).forEach(([id, item]) => {
+          // Update any DOM element that has data-item-id matching
+          const el = document.querySelector(`[data-item-id="${id}"]`);
+          if (el) {
+            const nameEl = el.querySelector('.price-row-name');
+            const valEl = el.querySelector('.price-row-val');
+            if (nameEl) nameEl.textContent = item.name;
+            if (valEl) valEl.textContent = item.available !== false ? '₦' + item.price : 'Unavailable';
+          }
+        });
+      }
+    });
+  }
+
+  // ── ADMIN PANEL INIT
+  function initAdmin() {
+    const adminEl = document.getElementById('admin-app');
+    if (adminEl.dataset.initialized) return;
+    adminEl.dataset.initialized = 'true';
+
+    onAuthStateChanged(auth, user => {
+      if (user) {
+        showAdminDashboard(user);
+      } else {
+        showAdminLogin();
+      }
+    });
+  }
+
+  function showAdminLogin() {
+    const el = document.getElementById('admin-app');
+    el.innerHTML = `
+      <div class="adm-login-wrap">
+        <div class="adm-login-box">
+          <div class="adm-login-logo">12 <em>Baskets</em></div>
+          <div class="adm-login-title">Admin Portal</div>
+          <div class="adm-login-sub">Sign in to manage the menu</div>
+          <div class="adm-field">
+            <label>Email</label>
+            <input type="email" id="adm-email" placeholder="admin@email.com" autocomplete="email">
+          </div>
+          <div class="adm-field">
+            <label>Password</label>
+            <input type="password" id="adm-pass" placeholder="••••••••" autocomplete="current-password">
+          </div>
+          <div class="adm-error" id="adm-err"></div>
+          <button class="adm-btn-primary" id="adm-login-btn">
+            <span id="adm-login-label">Sign In</span>
+          </button>
+        </div>
+      </div>`;
+
+    document.getElementById('adm-login-btn').addEventListener('click', async () => {
+      const email = document.getElementById('adm-email').value.trim();
+      const pass = document.getElementById('adm-pass').value;
+      const errEl = document.getElementById('adm-err');
+      const btn = document.getElementById('adm-login-btn');
+      const label = document.getElementById('adm-login-label');
+      errEl.textContent = '';
+      label.textContent = 'Signing in…';
+      btn.disabled = true;
+      try {
+        await signInWithEmailAndPassword(auth, email, pass);
+      } catch(e) {
+        errEl.textContent = 'Wrong email or password. Try again.';
+        label.textContent = 'Sign In';
+        btn.disabled = false;
+      }
+    });
+  }
+
+  // ── MENU STRUCTURE for admin tabs
+  const SECTIONS = [
+    { id: 'chops', label: 'Small Chops Packs', type: 'packs' },
+    { id: 'platters', label: 'Platters', type: 'platters' },
+    { id: 'grills', label: 'Grills & Seafood', type: 'simple' },
+    { id: 'meals', label: 'Food & Meals', type: 'simple' },
+    { id: 'pastries', label: 'Pastries (Tray)', type: 'simple' },
+    { id: 'boxes', label: 'Celebration Boxes', type: 'simple' },
+    { id: 'breakfast', label: 'Breakfast & Bowls', type: 'simple' },
+  ];
+
+  function showAdminDashboard(user) {
+    const el = document.getElementById('admin-app');
+    el.innerHTML = `
+      <div class="adm-shell">
+        <header class="adm-header">
+          <div class="adm-header-left">
+            <div class="adm-header-logo">12 <em>Baskets</em></div>
+            <div class="adm-header-title">Menu Manager</div>
+          </div>
+          <div class="adm-header-right">
+            <span class="adm-user-email">${user.email}</span>
+            <button class="adm-btn-ghost" id="adm-logout">Sign Out</button>
+            <a href="#" class="adm-btn-ghost">← Back to Site</a>
+          </div>
+        </header>
+        <div class="adm-body">
+          <nav class="adm-sidebar">
+            ${SECTIONS.map((s,i) => `<button class="adm-nav-btn${i===0?' active':''}" data-section="${s.id}">${s.label}</button>`).join('')}
+          </nav>
+          <main class="adm-main">
+            <div class="adm-main-header">
+              <div>
+                <div class="adm-main-title" id="adm-section-title">Small Chops Packs</div>
+                <div class="adm-main-sub">Changes save instantly and appear live on the site</div>
+              </div>
+              <button class="adm-btn-primary" id="adm-add-btn">+ Add Item</button>
+            </div>
+            <div class="adm-toast" id="adm-toast"></div>
+            <div id="adm-items-list" class="adm-items-list"></div>
+          </main>
+        </div>
+      </div>
+      <!-- Modal -->
+      <div class="adm-modal-overlay" id="adm-modal" style="display:none">
+        <div class="adm-modal">
+          <div class="adm-modal-title" id="adm-modal-title">Add Item</div>
+          <div class="adm-field">
+            <label>Item Name *</label>
+            <input type="text" id="adm-m-name" placeholder="e.g. Grab N Go Pack">
+          </div>
+          <div class="adm-field" id="adm-m-desc-wrap">
+            <label>Description / Contents</label>
+            <textarea id="adm-m-desc" rows="3" placeholder="e.g. 1 BBQ Chicken, 1 Springroll..."></textarea>
+          </div>
+          <div class="adm-field" id="adm-m-price-wrap">
+            <label>Price (numbers only, e.g. 3000)</label>
+            <input type="text" id="adm-m-price" placeholder="3000">
+          </div>
+          <div class="adm-field" id="adm-m-badge-wrap">
+            <label>Badge (optional, e.g. Popular)</label>
+            <input type="text" id="adm-m-badge" placeholder="Popular">
+          </div>
+          <div class="adm-field">
+            <label>Availability</label>
+            <div class="adm-toggle-row">
+              <label class="adm-toggle">
+                <input type="checkbox" id="adm-m-avail" checked>
+                <span class="adm-toggle-slider"></span>
+              </label>
+              <span id="adm-m-avail-label">Available</span>
+            </div>
+          </div>
+          <div class="adm-modal-actions">
+            <button class="adm-btn-ghost" id="adm-modal-cancel">Cancel</button>
+            <button class="adm-btn-primary" id="adm-modal-save">Save Item</button>
+          </div>
+        </div>
+      </div>`;
+
+    // State
+    let currentSection = SECTIONS[0];
+    let editingKey = null;
+    let currentData = {};
+
+    // Sidebar nav
+    document.querySelectorAll('.adm-nav-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.adm-nav-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        currentSection = SECTIONS.find(s => s.id === btn.dataset.section);
+        document.getElementById('adm-section-title').textContent = currentSection.label;
+        loadItems();
+      });
+    });
+
+    // Logout
+    document.getElementById('adm-logout').addEventListener('click', async () => {
+      await signOut(auth);
+      window.location.hash = '#/admin';
+    });
+
+    // Add button
+    document.getElementById('adm-add-btn').addEventListener('click', () => openModal(null));
+
+    // Modal cancel
+    document.getElementById('adm-modal-cancel').addEventListener('click', closeModal);
+
+    // Modal save
+    document.getElementById('adm-modal-save').addEventListener('click', saveItem);
+
+    // Availability toggle label
+    document.getElementById('adm-m-avail').addEventListener('change', function() {
+      document.getElementById('adm-m-avail-label').textContent = this.checked ? 'Available' : 'Unavailable';
+    });
+
+    // Load initial section
+    loadItems();
+
+    function showToast(msg, isError) {
+      const t = document.getElementById('adm-toast');
+      t.textContent = msg;
+      t.className = 'adm-toast' + (isError ? ' adm-toast-error' : ' adm-toast-ok');
+      t.style.display = 'block';
+      setTimeout(() => { t.style.display = 'none'; }, 3500);
+    }
+
+    function loadItems() {
+      const listEl = document.getElementById('adm-items-list');
+      listEl.innerHTML = '<div class="adm-loading">Loading…</div>';
+      const sectionRef = ref(db, 'menu/' + currentSection.id);
+      onValue(sectionRef, (snapshot) => {
+        currentData = snapshot.val() || {};
+        renderItems(currentData);
+      }, { onlyOnce: false });
+    }
+
+    function renderItems(data) {
+      const listEl = document.getElementById('adm-items-list');
+      const entries = Object.entries(data);
+      if (entries.length === 0) {
+        listEl.innerHTML = `<div class="adm-empty">No items yet. Click "+ Add Item" to get started.</div>`;
+        return;
+      }
+      listEl.innerHTML = entries.map(([key, item]) => `
+        <div class="adm-item-row" data-key="${key}">
+          <div class="adm-item-info">
+            <div class="adm-item-name">${item.name}</div>
+            ${item.desc ? `<div class="adm-item-desc">${item.desc}</div>` : ''}
+          </div>
+          <div class="adm-item-meta">
+            ${item.price ? `<div class="adm-item-price">₦${Number(item.price).toLocaleString()}</div>` : ''}
+            <div class="adm-item-status ${item.available !== false ? 'status-on' : 'status-off'}">
+              ${item.available !== false ? '● Available' : '○ Unavailable'}
+            </div>
+          </div>
+          <div class="adm-item-actions">
+            <button class="adm-btn-edit" data-key="${key}">Edit</button>
+            <button class="adm-btn-delete" data-key="${key}">Delete</button>
+          </div>
+        </div>`).join('');
+
+      // Attach edit/delete handlers
+      listEl.querySelectorAll('.adm-btn-edit').forEach(btn => {
+        btn.addEventListener('click', () => openModal(btn.dataset.key));
+      });
+      listEl.querySelectorAll('.adm-btn-delete').forEach(btn => {
+        btn.addEventListener('click', () => deleteItem(btn.dataset.key));
+      });
+    }
+
+    function openModal(key) {
+      editingKey = key;
+      const modal = document.getElementById('adm-modal');
+      const item = key ? currentData[key] : null;
+      const isPlatter = currentSection.id === 'platters';
+      const isChops = currentSection.id === 'chops';
+
+      document.getElementById('adm-modal-title').textContent = key ? 'Edit Item' : 'Add New Item';
+      document.getElementById('adm-m-name').value = item ? item.name : '';
+      document.getElementById('adm-m-desc').value = item ? (item.desc || '') : '';
+      document.getElementById('adm-m-price').value = item ? (item.price || '') : '';
+      document.getElementById('adm-m-badge').value = item ? (item.badge || '') : '';
+      const availChk = document.getElementById('adm-m-avail');
+      availChk.checked = item ? item.available !== false : true;
+      document.getElementById('adm-m-avail-label').textContent = availChk.checked ? 'Available' : 'Unavailable';
+
+      // Show/hide desc and badge fields based on section
+      document.getElementById('adm-m-desc-wrap').style.display = (isChops || isPlatter) ? 'block' : 'none';
+      document.getElementById('adm-m-badge-wrap').style.display = isPlatter ? 'block' : 'none';
+
+      modal.style.display = 'flex';
+    }
+
+    function closeModal() {
+      document.getElementById('adm-modal').style.display = 'none';
+      editingKey = null;
+    }
+
+    async function saveItem() {
+      const name = document.getElementById('adm-m-name').value.trim();
+      if (!name) { showToast('Item name is required.', true); return; }
+
+      const itemData = {
+        name,
+        desc: document.getElementById('adm-m-desc').value.trim(),
+        price: document.getElementById('adm-m-price').value.trim().replace(/,/g, ''),
+        badge: document.getElementById('adm-m-badge').value.trim(),
+        available: document.getElementById('adm-m-avail').checked,
+      };
+      // Clean empty fields
+      if (!itemData.desc) delete itemData.desc;
+      if (!itemData.price) delete itemData.price;
+      if (!itemData.badge) delete itemData.badge;
+
+      const btn = document.getElementById('adm-modal-save');
+      btn.textContent = 'Saving…';
+      btn.disabled = true;
+
+      try {
+        if (editingKey) {
+          await update(ref(db, `menu/${currentSection.id}/${editingKey}`), itemData);
+          showToast('Item updated successfully.', false);
+        } else {
+          await push(ref(db, `menu/${currentSection.id}`), itemData);
+          showToast('Item added successfully.', false);
+        }
+        closeModal();
+      } catch(e) {
+        showToast('Save failed: ' + e.message, true);
+      }
+      btn.textContent = 'Save Item';
+      btn.disabled = false;
+    }
+
+    async function deleteItem(key) {
+      if (!confirm(`Delete "${currentData[key]?.name}"? This cannot be undone.`)) return;
+      try {
+        await remove(ref(db, `menu/${currentSection.id}/${key}`));
+        showToast('Item deleted.', false);
+      } catch(e) {
+        showToast('Delete failed: ' + e.message, true);
+      }
+    }
+  }
+</script>
 <style>
 :root {
   --cream: #F5EFE4;
@@ -914,10 +1327,195 @@ footer{
   .stats-row{grid-template-columns:1fr}
   .celebration-grid{grid-template-columns:1fr}
 }
+
+/* ════════════════════════════════════════
+   ADMIN PANEL
+════════════════════════════════════════ */
+#admin-app{display:none;font-family:var(--ff-body);min-height:100vh;background:#F7F5F2}
+
+/* Login */
+.adm-login-wrap{
+  min-height:100vh;display:flex;align-items:center;justify-content:center;
+  background:var(--ink);
+  background-image:repeating-linear-gradient(45deg,transparent,transparent 40px,rgba(245,239,228,0.02) 40px,rgba(245,239,228,0.02) 41px);
+}
+.adm-login-box{
+  background:rgba(245,239,228,0.05);
+  border:1px solid rgba(245,239,228,0.12);
+  border-radius:12px;
+  padding:56px 48px;
+  width:100%;max-width:400px;
+}
+.adm-login-logo{
+  font-family:var(--ff-display);font-size:28px;font-weight:300;
+  color:var(--cream);letter-spacing:0.08em;margin-bottom:8px;
+}
+.adm-login-logo em{font-style:italic;color:var(--lime-bright)}
+.adm-login-title{font-size:20px;font-weight:600;color:var(--cream);margin-bottom:4px}
+.adm-login-sub{font-size:13px;color:rgba(245,239,228,0.4);margin-bottom:36px}
+
+/* Shell */
+.adm-shell{display:flex;flex-direction:column;min-height:100vh}
+.adm-header{
+  background:var(--ink);
+  padding:0 32px;height:64px;
+  display:flex;align-items:center;justify-content:space-between;
+  border-bottom:1px solid rgba(245,239,228,0.08);
+  position:sticky;top:0;z-index:100;
+}
+.adm-header-left{display:flex;align-items:center;gap:20px}
+.adm-header-logo{font-family:var(--ff-display);font-size:22px;font-weight:300;color:var(--cream);letter-spacing:0.06em}
+.adm-header-logo em{font-style:italic;color:var(--lime-bright)}
+.adm-header-title{font-size:12px;font-weight:600;letter-spacing:0.14em;text-transform:uppercase;color:rgba(245,239,228,0.35);padding-left:20px;border-left:1px solid rgba(245,239,228,0.1)}
+.adm-header-right{display:flex;align-items:center;gap:16px}
+.adm-user-email{font-size:12px;color:rgba(245,239,228,0.35)}
+.adm-body{display:flex;flex:1}
+
+/* Sidebar */
+.adm-sidebar{
+  width:220px;flex-shrink:0;
+  background:#EFECE7;
+  border-right:1px solid rgba(26,22,15,0.08);
+  padding:24px 0;
+  position:sticky;top:64px;height:calc(100vh - 64px);
+  overflow-y:auto;
+}
+.adm-nav-btn{
+  display:block;width:100%;text-align:left;
+  padding:12px 24px;
+  font-size:12px;font-weight:500;letter-spacing:0.06em;
+  color:var(--warm-gray);
+  background:none;border:none;cursor:pointer;
+  transition:all 0.2s;border-left:3px solid transparent;
+}
+.adm-nav-btn:hover{color:var(--ink);background:rgba(26,22,15,0.04)}
+.adm-nav-btn.active{color:var(--lime-muted);background:rgba(107,154,31,0.07);border-left-color:var(--lime)}
+
+/* Main */
+.adm-main{flex:1;padding:40px 48px;max-width:960px}
+.adm-main-header{display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:32px;gap:20px}
+.adm-main-title{font-family:var(--ff-display);font-size:32px;font-weight:300;color:var(--ink);line-height:1.1}
+.adm-main-sub{font-size:12px;color:var(--warm-gray);margin-top:4px;letter-spacing:0.04em}
+
+/* Fields */
+.adm-field{margin-bottom:18px}
+.adm-field label{display:block;font-size:10px;font-weight:700;letter-spacing:0.16em;text-transform:uppercase;color:var(--warm-gray);margin-bottom:7px}
+.adm-field input,.adm-field textarea{
+  width:100%;padding:12px 14px;
+  background:#fff;border:1px solid rgba(26,22,15,0.15);
+  border-radius:var(--radius);font-family:var(--ff-body);font-size:14px;color:var(--ink);
+  transition:border-color 0.2s;resize:vertical;
+}
+.adm-field input:focus,.adm-field textarea:focus{outline:none;border-color:var(--lime)}
+.adm-error{font-size:12px;color:#C0392B;margin:8px 0;min-height:18px}
+
+/* Buttons */
+.adm-btn-primary{
+  background:var(--lime);color:#fff;
+  padding:12px 28px;border-radius:var(--radius);
+  font-family:var(--ff-body);font-size:12px;font-weight:600;letter-spacing:0.1em;text-transform:uppercase;
+  border:none;cursor:pointer;transition:all 0.2s;white-space:nowrap;
+}
+.adm-btn-primary:hover{background:var(--lime-muted);transform:translateY(-1px)}
+.adm-btn-primary:disabled{opacity:0.6;transform:none;cursor:not-allowed}
+.adm-btn-ghost{
+  background:none;color:rgba(245,239,228,0.55);
+  padding:8px 16px;border-radius:var(--radius);
+  font-family:var(--ff-body);font-size:12px;font-weight:500;letter-spacing:0.06em;
+  border:1px solid rgba(245,239,228,0.15);cursor:pointer;transition:all 0.2s;
+  text-decoration:none;display:inline-flex;align-items:center;
+}
+.adm-btn-ghost:hover{color:var(--cream);border-color:rgba(245,239,228,0.35)}
+
+/* Toggle */
+.adm-toggle-row{display:flex;align-items:center;gap:12px}
+.adm-toggle{position:relative;display:inline-block;width:44px;height:24px;flex-shrink:0}
+.adm-toggle input{opacity:0;width:0;height:0}
+.adm-toggle-slider{
+  position:absolute;inset:0;background:#ccc;border-radius:24px;
+  cursor:pointer;transition:0.3s;
+}
+.adm-toggle-slider::before{
+  content:'';position:absolute;
+  height:18px;width:18px;left:3px;bottom:3px;
+  background:white;border-radius:50%;transition:0.3s;
+}
+.adm-toggle input:checked + .adm-toggle-slider{background:var(--lime)}
+.adm-toggle input:checked + .adm-toggle-slider::before{transform:translateX(20px)}
+
+/* Items list */
+.adm-items-list{display:flex;flex-direction:column;gap:2px}
+.adm-loading,.adm-empty{
+  padding:48px;text-align:center;
+  font-size:14px;color:var(--warm-gray);
+  background:#fff;border-radius:var(--radius);
+  border:1px solid rgba(26,22,15,0.08);
+}
+.adm-item-row{
+  display:grid;grid-template-columns:1fr auto auto;gap:24px;align-items:center;
+  background:#fff;border:1px solid rgba(26,22,15,0.08);
+  border-radius:var(--radius);padding:18px 24px;
+  transition:border-color 0.2s;
+}
+.adm-item-row:hover{border-color:rgba(107,154,31,0.3)}
+.adm-item-name{font-size:15px;font-weight:500;color:var(--ink);font-family:var(--ff-display)}
+.adm-item-desc{font-size:12px;color:var(--warm-gray);margin-top:3px;line-height:1.5}
+.adm-item-meta{display:flex;flex-direction:column;align-items:flex-end;gap:4px}
+.adm-item-price{font-family:var(--ff-display);font-size:18px;font-weight:400;color:var(--ink)}
+.adm-item-status{font-size:11px;font-weight:600;letter-spacing:0.08em;text-transform:uppercase}
+.status-on{color:var(--lime-muted)}
+.status-off{color:var(--warm-gray)}
+.adm-item-actions{display:flex;gap:8px}
+.adm-btn-edit{
+  padding:7px 16px;font-size:11px;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;
+  background:none;border:1px solid rgba(26,22,15,0.15);border-radius:var(--radius);
+  color:var(--charcoal);cursor:pointer;transition:all 0.2s;font-family:var(--ff-body);
+}
+.adm-btn-edit:hover{background:var(--ink);color:var(--cream);border-color:var(--ink)}
+.adm-btn-delete{
+  padding:7px 16px;font-size:11px;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;
+  background:none;border:1px solid rgba(181,78,40,0.2);border-radius:var(--radius);
+  color:var(--rust);cursor:pointer;transition:all 0.2s;font-family:var(--ff-body);
+}
+.adm-btn-delete:hover{background:var(--rust);color:#fff;border-color:var(--rust)}
+
+/* Toast */
+.adm-toast{
+  display:none;padding:14px 20px;border-radius:var(--radius);
+  font-size:13px;margin-bottom:24px;font-weight:500;
+}
+.adm-toast-ok{background:rgba(107,154,31,0.12);border:1px solid rgba(107,154,31,0.3);color:var(--lime-muted)}
+.adm-toast-error{background:rgba(181,78,40,0.1);border:1px solid rgba(181,78,40,0.3);color:var(--rust)}
+
+/* Modal */
+.adm-modal-overlay{
+  position:fixed;inset:0;background:rgba(26,22,15,0.65);
+  display:flex;align-items:center;justify-content:center;
+  z-index:2000;padding:20px;
+}
+.adm-modal{
+  background:#fff;border-radius:12px;
+  padding:40px;width:100%;max-width:500px;
+  max-height:90vh;overflow-y:auto;
+  box-shadow:0 24px 80px rgba(26,22,15,0.35);
+}
+.adm-modal-title{font-family:var(--ff-display);font-size:28px;font-weight:300;color:var(--ink);margin-bottom:28px}
+.adm-modal-actions{display:flex;justify-content:flex-end;gap:12px;margin-top:28px;padding-top:24px;border-top:1px solid rgba(26,22,15,0.08)}
+
+/* Admin responsive */
+@media(max-width:768px){
+  .adm-sidebar{display:none}
+  .adm-main{padding:24px 20px}
+  .adm-header{padding:0 20px}
+  .adm-user-email{display:none}
+  .adm-item-row{grid-template-columns:1fr auto;gap:12px}
+  .adm-item-meta{display:none}
+  .adm-login-box{padding:40px 28px}
+}
 </style>
 </head>
 <body>
-
+<div id="main-site">
 <!-- NAV -->
 <nav id="navbar">
   <div class="container nav-inner">
@@ -1620,5 +2218,10 @@ document.getElementById('reviewForm').addEventListener('submit',function(e){
   const ty=document.getElementById('thankYouMsg');ty.classList.add('show');setTimeout(()=>ty.classList.remove('show'),9000);
 });
 </script>
+</div><!-- /main-site -->
+
+<!-- ADMIN APP (rendered via JS) -->
+<div id="admin-app"></div>
+
 </body>
 </html>
