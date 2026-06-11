@@ -314,6 +314,12 @@
             <a href="#" class="adm-btn-ghost">← Back to Site</a>
           </div>
         </header>
+		<div class="adm-mobile-nav-wrap">
+		  <div class="adm-mobile-nav-label">Section</div>
+		  <select class="adm-mobile-nav-select" id="adm-mobile-nav">
+			${SECTIONS.map((s,i) => `<option value="${s.id}">${s.label}</option>`).join('')}
+		  </select>
+		</div>
         <div class="adm-body">
           <nav class="adm-sidebar">
             ${SECTIONS.map((s,i) => `<button class="adm-nav-btn${i===0?' active':''}" data-section="${s.id}">${s.label}</button>`).join('')}
@@ -383,12 +389,38 @@
         loadItems();
       });
     });
+	// Mobile dropdown nav
+	document.getElementById('adm-mobile-nav').addEventListener('change', function() {
+	  currentSection = SECTIONS.find(s => s.id === this.value);
+	  document.getElementById('adm-section-title').textContent = currentSection.label;
+	  // Keep sidebar in sync
+	  document.querySelectorAll('.adm-nav-btn').forEach(b => {
+		b.classList.toggle('active', b.dataset.section === this.value);
+	  });
+	  loadItems();
+	});
 
     // Logout
     document.getElementById('adm-logout').addEventListener('click', async () => {
       await signOut(auth);
       window.location.hash = '#/admin';
     });
+	// ── AUTO LOGOUT after 10 minutes
+	let autoLogoutTimer = setTimeout(async () => {
+	  await signOut(auth);
+	  window.location.hash = '#/admin';
+	}, 10 * 60 * 1000);
+
+	// Reset timer on any user interaction
+	['click', 'keydown', 'mousemove', 'touchstart'].forEach(evt => {
+	  document.addEventListener(evt, () => {
+		clearTimeout(autoLogoutTimer);
+		autoLogoutTimer = setTimeout(async () => {
+		  await signOut(auth);
+		  window.location.hash = '#/admin';
+		}, 10 * 60 * 1000);
+	  }, { passive: true });
+	});
 
     // Add button
     document.getElementById('adm-add-btn').addEventListener('click', () => openModal(null));
@@ -1615,15 +1647,120 @@ footer{
 .adm-modal-title{font-family:var(--ff-display);font-size:28px;font-weight:300;color:var(--ink);margin-bottom:28px}
 .adm-modal-actions{display:flex;justify-content:flex-end;gap:12px;margin-top:28px;padding-top:24px;border-top:1px solid rgba(26,22,15,0.08)}
 
-/* Admin responsive */
-@media(max-width:768px){
-  .adm-sidebar{display:none}
-  .adm-main{padding:24px 20px}
-  .adm-header{padding:0 20px}
-  .adm-user-email{display:none}
-  .adm-item-row{grid-template-columns:1fr auto;gap:12px}
-  .adm-item-meta{display:none}
-  .adm-login-box{padding:40px 28px}
+/* ════════════════════════════════════════
+   ADMIN — MOBILE SECTION DROPDOWN
+════════════════════════════════════════ */
+.adm-mobile-nav-wrap {
+  display: none;
+  padding: 16px 20px 0;
+  background: #EFECE7;
+  border-bottom: 1px solid rgba(26,22,15,0.08);
+}
+.adm-mobile-nav-label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--warm-gray);
+  margin-bottom: 8px;
+}
+.adm-mobile-nav-select {
+  width: 100%;
+  padding: 11px 14px;
+  background: #fff;
+  border: 1px solid rgba(26,22,15,0.15);
+  border-radius: var(--radius);
+  font-family: var(--ff-body);
+  font-size: 14px;
+  color: var(--ink);
+  margin-bottom: 16px;
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%237A7068' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 14px center;
+  cursor: pointer;
+}
+.adm-mobile-nav-select:focus {
+  outline: none;
+  border-color: var(--lime);
+}
+
+/* ════════════════════════════════════════
+   ADMIN RESPONSIVE
+════════════════════════════════════════ */
+@media(max-width: 768px) {
+  /* Header: tighten up, hide email */
+  .adm-header { padding: 0 16px; gap: 12px; }
+  .adm-header-title { display: none; }
+  .adm-user-email { display: none; }
+  .adm-btn-ghost {
+    padding: 7px 10px;
+    font-size: 11px;
+  }
+
+  /* Hide sidebar, show dropdown nav */
+  .adm-sidebar { display: none; }
+  .adm-mobile-nav-wrap { display: block; }
+
+  /* Body becomes single column */
+  .adm-body { flex-direction: column; }
+
+  /* Main content full width, tighter padding */
+  .adm-main {
+    padding: 24px 16px;
+    max-width: 100%;
+  }
+
+  /* Section header: stack title + button */
+  .adm-main-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 14px;
+    margin-bottom: 24px;
+  }
+  .adm-btn-primary { width: 100%; text-align: center; justify-content: center; }
+
+  /* Item rows: stack into 2 rows */
+  .adm-item-row {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 16px;
+  }
+  .adm-item-info { flex: 1; }
+  .adm-item-meta {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 12px;
+  }
+  .adm-item-actions {
+    display: flex;
+    gap: 8px;
+  }
+  .adm-btn-edit,
+  .adm-btn-delete {
+    flex: 1;
+    text-align: center;
+    padding: 10px 12px;
+    font-size: 12px;
+  }
+
+  /* Modal: full screen feel */
+  .adm-modal-overlay { padding: 12px; align-items: flex-end; }
+  .adm-modal {
+    padding: 28px 20px;
+    border-radius: 12px 12px 0 0;
+    max-height: 88vh;
+  }
+  .adm-modal-title { font-size: 22px; margin-bottom: 20px; }
+  .adm-modal-actions { flex-direction: column-reverse; gap: 8px; }
+  .adm-modal-actions .adm-btn-ghost,
+  .adm-modal-actions .adm-btn-primary { width: 100%; text-align: center; justify-content: center; }
+
+  /* Login box */
+  .adm-login-box { padding: 36px 20px; margin: 0 16px; }
 }
 </style>
 </head>
