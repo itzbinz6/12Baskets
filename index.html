@@ -57,65 +57,178 @@
     });
   });
 
+  function fmt(price) {
+    return '&#8358;' + Number(price).toLocaleString();
+  }
+
   function renderMenuFromFirebase(data) {
-    // ── Render Small Chops Packs
+
+    // ── 1. Small Chops Packs
     if (data.chops) {
-      const panel = document.getElementById('panel-chops');
-      if (!panel) return;
-      const grid = panel.querySelector('.packs-grid');
-      if (!grid) return;
-      grid.innerHTML = '';
-      Object.entries(data.chops).forEach(([id, item]) => {
-        const avail = item.available !== false;
-        const hasPrice = item.price && item.price !== '';
-        grid.innerHTML += `
-          <div class="pack-item${avail ? '' : ' unavailable'}" data-item-id="${id}">
-            <div class="pack-name">${item.name}</div>
-            <div class="pack-desc">${item.desc || ''}</div>
-            <div class="pack-footer">
-              ${avail && hasPrice ? `<div class="pack-price">&#8358;${item.price}</div><div class="pack-tag">Available</div>` : `<div class="pack-oos">Temporarily Unavailable</div>`}
-            </div>
-          </div>`;
-      });
-    }
-    // ── Render Platters
-    if (data.platters) {
-      const panel = document.getElementById('panel-platters');
-      if (!panel) return;
-      const table = panel.querySelector('.platters-table');
-      if (!table) return;
-      table.innerHTML = '';
-      Object.entries(data.platters).forEach(([id, item]) => {
-        const avail = item.available !== false;
-        const hasPrice = item.price && item.price !== '';
-        table.innerHTML += `
-          <div class="platter-row" data-item-id="${id}">
-            <div>
-              <div class="platter-row-name">${item.name}</div>
-              ${item.badge ? `<div class="platter-row-badge">${item.badge}</div>` : ''}
-            </div>
-            <div class="platter-row-contents">${item.desc || ''}</div>
-            <div class="platter-row-price${avail && hasPrice ? '' : ' oos'}">${avail && hasPrice ? '&#8358;' + item.price : 'Temporarily Unavailable'}</div>
-          </div>`;
-      });
-    }
-    // Other sections (grills, meals, pastries, boxes, breakfast) are mostly static price lists
-    // and will be managed via Firebase but rendered as simple updates to price-row values
-    const simpleSections = ['grills', 'meals', 'pastries', 'boxes', 'breakfast'];
-    simpleSections.forEach(section => {
-      if (data[section]) {
-        Object.entries(data[section]).forEach(([id, item]) => {
-          // Update any DOM element that has data-item-id matching
-          const el = document.querySelector(`[data-item-id="${id}"]`);
-          if (el) {
-            const nameEl = el.querySelector('.price-row-name');
-            const valEl = el.querySelector('.price-row-val');
-            if (nameEl) nameEl.textContent = item.name;
-            if (valEl) valEl.textContent = item.available !== false ? '₦' + item.price : 'Unavailable';
-          }
+      const grid = document.querySelector('#panel-chops .packs-grid');
+      if (grid) {
+        grid.innerHTML = '';
+        Object.entries(data.chops).forEach(([id, item]) => {
+          const avail = item.available !== false;
+          const hasPrice = item.price && item.price !== '';
+          grid.innerHTML += `
+            <div class="pack-item${avail ? '' : ' unavailable'}" data-item-id="${id}">
+              <div class="pack-name">${item.name}</div>
+              <div class="pack-desc">${item.desc || ''}</div>
+              <div class="pack-footer">
+                ${avail && hasPrice
+                  ? `<div class="pack-price">${fmt(item.price)}</div><div class="pack-tag">Available</div>`
+                  : `<div class="pack-oos">Temporarily Unavailable</div>`}
+              </div>
+            </div>`;
         });
       }
-    });
+    }
+
+    // ── 2. Platters
+    if (data.platters) {
+      const table = document.querySelector('#panel-platters .platters-table');
+      if (table) {
+        table.innerHTML = '';
+        Object.entries(data.platters).forEach(([id, item]) => {
+          const avail = item.available !== false;
+          const hasPrice = item.price && item.price !== '';
+          table.innerHTML += `
+            <div class="platter-row" data-item-id="${id}">
+              <div>
+                <div class="platter-row-name">${item.name}</div>
+                ${item.badge ? `<div class="platter-row-badge">${item.badge}</div>` : ''}
+              </div>
+              <div class="platter-row-contents">${item.desc || ''}</div>
+              <div class="platter-row-price${avail && hasPrice ? '' : ' oos'}">
+                ${avail && hasPrice ? fmt(item.price) : 'Temporarily Unavailable'}
+              </div>
+            </div>`;
+        });
+      }
+    }
+
+    // ── 3. Grills & Seafood
+    if (data.grills) {
+      const panel = document.getElementById('panel-grills');
+      if (panel) {
+        const grid = panel.querySelector('.price-list-grid');
+        if (grid) {
+          grid.innerHTML = '<div id="grills-col-1"></div><div id="grills-col-2"></div>';
+          const col1 = document.getElementById('grills-col-1');
+          const col2 = document.getElementById('grills-col-2');
+          const entries = Object.entries(data.grills);
+          const half = Math.ceil(entries.length / 2);
+          entries.forEach(([id, item], i) => {
+            const avail = item.available !== false;
+            const row = `<div class="price-row" data-item-id="${id}">
+              <span class="price-row-name">${item.name}${avail ? '' : ' <em style="font-size:10px;color:var(--warm-gray)">(unavail.)</em>'}</span>
+              <span class="price-row-val">${avail && item.price ? fmt(item.price) : '—'}</span>
+            </div>`;
+            (i < half ? col1 : col2).innerHTML += row;
+          });
+        }
+      }
+    }
+
+    // ── 4. Food & Meals
+    if (data.meals) {
+      const panel = document.getElementById('panel-meals');
+      if (panel) {
+        const grid = panel.querySelector('.price-list-grid');
+        if (grid) {
+          grid.innerHTML = '<div id="meals-col-1"></div><div id="meals-col-2"></div>';
+          const col1 = document.getElementById('meals-col-1');
+          const col2 = document.getElementById('meals-col-2');
+          const entries = Object.entries(data.meals);
+          const half = Math.ceil(entries.length / 2);
+          entries.forEach(([id, item], i) => {
+            const avail = item.available !== false;
+            const row = `<div class="price-row" data-item-id="${id}">
+              <span class="price-row-name">${item.name}${avail ? '' : ' <em style="font-size:10px;color:var(--warm-gray)">(unavail.)</em>'}</span>
+              <span class="price-row-val">${avail && item.price ? fmt(item.price) : '—'}</span>
+            </div>`;
+            (i < half ? col1 : col2).innerHTML += row;
+          });
+        }
+      }
+    }
+
+    // ── 5. Pastries (Tray)
+    if (data.pastries) {
+      const panel = document.getElementById('panel-pastries');
+      if (panel) {
+        const grid = panel.querySelector('.price-list-grid');
+        if (grid) {
+          grid.innerHTML = '<div id="pastries-col-1"></div><div id="pastries-col-2"></div>';
+          const col1 = document.getElementById('pastries-col-1');
+          const col2 = document.getElementById('pastries-col-2');
+          const entries = Object.entries(data.pastries);
+          const half = Math.ceil(entries.length / 2);
+          entries.forEach(([id, item], i) => {
+            const avail = item.available !== false;
+            const row = `<div class="price-row" data-item-id="${id}">
+              <span class="price-row-name">${item.name}${avail ? '' : ' <em style="font-size:10px;color:var(--warm-gray)">(unavail.)</em>'}</span>
+              <span class="price-row-val">${avail && item.price ? fmt(item.price) : '—'}</span>
+            </div>`;
+            (i < half ? col1 : col2).innerHTML += row;
+          });
+        }
+      }
+    }
+
+    // ── 6. Celebration Boxes
+    if (data.boxes) {
+      const panel = document.getElementById('panel-boxes');
+      if (panel) {
+        const grid = panel.querySelector('.celebration-grid');
+        if (grid) {
+          grid.innerHTML = '';
+          Object.entries(data.boxes).forEach(([id, item]) => {
+            const avail = item.available !== false;
+            grid.innerHTML += `
+              <div class="celebration-card${avail ? '' : ''}" data-item-id="${id}" style="${avail ? '' : 'opacity:0.5'}">
+                ${item.badge ? `<div class="celebration-badge">${item.badge}</div>` : ''}
+                <div class="celebration-tier">${item.badge || ''}</div>
+                <div class="celebration-name">${item.name}</div>
+                <div class="celebration-price">${avail && item.price ? fmt(item.price) : '<span style="font-size:16px;font-family:var(--ff-body);color:var(--warm-gray)">Unavailable</span>'}</div>
+                ${(item.desc || '').split('|').map(part => {
+                  const [label, ...rest] = part.trim().split(':');
+                  return rest.length
+                    ? `<div class="celebration-section">
+                        <div class="celebration-section-label">${label.trim()}</div>
+                        <div class="celebration-section-content">${rest.join(':').trim()}</div>
+                       </div>`
+                    : `<div class="celebration-section"><div class="celebration-section-content">${part.trim()}</div></div>`;
+                }).join('')}
+              </div>`;
+          });
+        }
+      }
+    }
+
+    // ── 7. Breakfast & Bowls
+    if (data.breakfast) {
+      const panel = document.getElementById('panel-breakfast');
+      if (panel) {
+        const grid = panel.querySelector('.price-list-grid');
+        if (grid) {
+          grid.innerHTML = '<div id="breakfast-col-1"></div><div id="breakfast-col-2"></div>';
+          const col1 = document.getElementById('breakfast-col-1');
+          const col2 = document.getElementById('breakfast-col-2');
+          const entries = Object.entries(data.breakfast);
+          const half = Math.ceil(entries.length / 2);
+          entries.forEach(([id, item], i) => {
+            const avail = item.available !== false;
+            const row = `<div class="price-row" data-item-id="${id}">
+              <span class="price-row-name">${item.name}${avail ? '' : ' <em style="font-size:10px;color:var(--warm-gray)">(unavail.)</em>'}</span>
+              <span class="price-row-val">${avail && item.price ? fmt(item.price) : '—'}</span>
+            </div>`;
+            (i < half ? col1 : col2).innerHTML += row;
+          });
+        }
+      }
+    }
   }
 
   // ── ADMIN PANEL INIT
